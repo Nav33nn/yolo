@@ -1,5 +1,6 @@
 from __future__ import division
 
+from util import * 
 import torch 
 import torch.nn as nn
 import torch.nn.functional as F 
@@ -14,6 +15,12 @@ class DetectionLayer(nn.Module):
     def __init__(self, anchors):
         super(DetectionLayer, self).__init__()
         self.anchors = anchors
+
+class Darknet(nn.Module):
+    def __init__(self, cfgfile):
+        super(Darknet, self).__init__()
+        self.blocks = parse_cfg(cfgfile)
+        self.net_info, self.module_list = create_modules(self.blocks)
 
 def parse_cfg(cfgfile):
     file = open(cfgfile, 'r')
@@ -109,7 +116,37 @@ def create_modules(blocks):
         output_filters.append(filters)
     return (net_info, module_list)
 
+def forward(self, x, CUDA):
+    modules = self.blocks[1:]
+    outputs = {}
+    write = 0     
+    for i, module in enumerate(modules):        
+        module_type = (module["type"])
+        if module_type == "convolutional" or module_type == "upsample":
+            x = self.module_list[i](x)
+        elif module_type == "route":
+            layers = module["layers"]
+            layers = [int(a) for a in layers]
 
+            if (layers[0]) > 0:
+                layers[0] = layers[0] - i
+
+            if len(layers) == 1:
+                x = outputs[i + (layers[0])]
+
+            else:
+                if (layers[1]) > 0:
+                    layers[1] = layers[1] - i
+
+                map1 = outputs[i + layers[0]]
+                map2 = outputs[i + layers[1]]
+
+                x = torch.cat((map1, map2), 1)
+
+        elif  module_type == "shortcut":
+            from_ = int(module["from"])
+            x = outputs[i-1] + outputs[i+from_]    
+            
 
         
 if __name__ == '__main__':
