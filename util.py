@@ -7,7 +7,6 @@ from torch.autograd import Variable
 import numpy as np
 import cv2 
 
-
 def unique(tensor):
     tensor_np = tensor.cpu().numpy()
     unique_np = np.unique(tensor_np)
@@ -45,7 +44,6 @@ def bbox_iou(box1, box2):
     
     return iou
 
-
 def predict_transform(prediction, inp_dim, anchors, num_classes, CUDA = True):
 
     
@@ -60,12 +58,12 @@ def predict_transform(prediction, inp_dim, anchors, num_classes, CUDA = True):
     prediction = prediction.view(batch_size, grid_size*grid_size*num_anchors, bbox_attrs)
     anchors = [(a[0]/stride, a[1]/stride) for a in anchors]
 
-    
+    #Sigmoid the  centre_X, centre_Y. and object confidencce
     prediction[:,:,0] = torch.sigmoid(prediction[:,:,0])
     prediction[:,:,1] = torch.sigmoid(prediction[:,:,1])
     prediction[:,:,4] = torch.sigmoid(prediction[:,:,4])
     
-    
+    #Add the center offsets
     grid = np.arange(grid_size)
     a,b = np.meshgrid(grid, grid)
 
@@ -80,6 +78,7 @@ def predict_transform(prediction, inp_dim, anchors, num_classes, CUDA = True):
 
     prediction[:,:,:2] += x_y_offset
 
+    #log space transform height and the width
     anchors = torch.FloatTensor(anchors)
 
     if CUDA:
@@ -97,20 +96,25 @@ def predict_transform(prediction, inp_dim, anchors, num_classes, CUDA = True):
 def write_results(prediction, confidence, num_classes, nms_conf = 0.4):
     conf_mask = (prediction[:,:,4] > confidence).float().unsqueeze(2)
     prediction = prediction*conf_mask
+    
     box_corner = prediction.new(prediction.shape)
     box_corner[:,:,0] = (prediction[:,:,0] - prediction[:,:,2]/2)
     box_corner[:,:,1] = (prediction[:,:,1] - prediction[:,:,3]/2)
     box_corner[:,:,2] = (prediction[:,:,0] + prediction[:,:,2]/2) 
     box_corner[:,:,3] = (prediction[:,:,1] + prediction[:,:,3]/2)
     prediction[:,:,:4] = box_corner[:,:,:4]
+    
     batch_size = prediction.size(0)
 
     write = False
+    
+
 
     for ind in range(batch_size):
         image_pred = prediction[ind]          #image Tensor
-           #confidence threshholding 
-           #NMS
+       #confidence threshholding 
+       #NMS
+    
         max_conf, max_conf_score = torch.max(image_pred[:,5:5+ num_classes], 1)
         max_conf = max_conf.float().unsqueeze(1)
         max_conf_score = max_conf_score.float().unsqueeze(1)
@@ -124,13 +128,17 @@ def write_results(prediction, confidence, num_classes, nms_conf = 0.4):
             continue
         
         if image_pred_.shape[0] == 0:
-            continue
-        
+            continue       
+#        
+  
         #Get the various classes detected in the image
-        img_classes = unique(image_pred_[:,-1]) # -1 index holds the class index
+        img_classes = unique(image_pred_[:,-1])  # -1 index holds the class index
+        
         
         for cls in img_classes:
             #perform NMS
+
+        
             #get the detections with one particular class
             cls_mask = image_pred_*(image_pred_[:,-1] == cls).float().unsqueeze(1)
             class_mask_ind = torch.nonzero(cls_mask[:,-2]).squeeze()
@@ -141,6 +149,7 @@ def write_results(prediction, confidence, num_classes, nms_conf = 0.4):
             conf_sort_index = torch.sort(image_pred_class[:,4], descending = True )[1]
             image_pred_class = image_pred_class[conf_sort_index]
             idx = image_pred_class.size(0)   #Number of detections
+            
             for i in range(idx):
                 #Get the IOUs of all boxes that come after the one we are looking at 
                 #in the loop
@@ -148,16 +157,17 @@ def write_results(prediction, confidence, num_classes, nms_conf = 0.4):
                     ious = bbox_iou(image_pred_class[i].unsqueeze(0), image_pred_class[i+1:])
                 except ValueError:
                     break
+            
                 except IndexError:
                     break
-                
+            
                 #Zero out all the detections that have IoU > treshhold
                 iou_mask = (ious < nms_conf).float().unsqueeze(1)
                 image_pred_class[i+1:] *= iou_mask       
-                
+            
                 #Remove the non-zero entries
                 non_zero_ind = torch.nonzero(image_pred_class[:,4]).squeeze()
-                image_pred_class = image_pred_class[non_zero_ind]         
+                image_pred_class = image_pred_class[non_zero_ind].view(-1,7)
                 
             batch_ind = image_pred_class.new(image_pred_class.size(0), 1).fill_(ind)      #Repeat the batch_id for as many detections of the class cls in the image
             seq = batch_ind, image_pred_class
@@ -168,12 +178,12 @@ def write_results(prediction, confidence, num_classes, nms_conf = 0.4):
             else:
                 out = torch.cat(seq,1)
                 output = torch.cat((output,out))
-                
+
     try:
         return output
     except:
         return 0
-            
+    
 def letterbox_image(img, inp_dim):
     '''resize image with unchanged aspect ratio using padding'''
     img_w, img_h = img.shape[1], img.shape[0]
@@ -202,4 +212,4 @@ def prep_image(img, inp_dim):
 def load_classes(namesfile):
     fp = open(namesfile, "r")
     names = fp.read().split("\n")[:-1]
-    return names        
+    return names
